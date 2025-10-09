@@ -1,0 +1,178 @@
+pipeline {
+    agent any
+    
+    // 只在创建新tag时触发
+    triggers {
+        pollSCM('H/5 * * * *') // 每5分钟检查一次新的tag
+    }
+    
+    options {
+        // 只保留最近10次构建
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        // 超时设置
+        timeout(time: 30, unit: 'MINUTES')
+    }
+    
+    environment {
+        NODE_VERSION = '18'
+    }
+    
+    stages {
+        stage('Check for New Tags') {
+            steps {
+                script {
+                    // 获取最新的tag
+                    def latestTag = sh(
+                        script: 'git describe --tags --abbrev=0 2>/dev/null || echo "no-tags"',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (latestTag == 'no-tags') {
+                        echo "No tags found, skipping release"
+                        currentBuild.result = 'ABORTED'
+                        return
+                    }
+                    
+                    // 检查这个tag是否已经处理过
+                    def lastProcessedTag = sh(
+                        script: 'git log --oneline | grep "chore: bump version to" | head -1 | grep -o "v[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+" || echo "none"',
+                        returnStdout: true
+                    ).trim()
+                    
+                    echo "Latest tag: ${latestTag}"
+                    echo "Last processed tag: ${lastProcessedTag}"
+                    
+                    if (latestTag == lastProcessedTag) {
+                        echo "Tag ${latestTag} already processed, skipping"
+                        currentBuild.result = 'ABORTED'
+                        return
+                    }
+                    
+                    // 设置环境变量
+                    env.RELEASE_TAG = latestTag
+                    echo "Will process new tag: ${latestTag}"
+                }
+            }
+        }
+        
+        stage('Checkout') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                // 检出最新代码
+                checkout scm
+                
+                // 拉取所有tags
+                sh 'git fetch --tags'
+                
+                script {
+                    echo "Building release for tag: ${env.RELEASE_TAG}"
+                }
+            }
+        }
+        
+        stage('Setup Node.js') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                // 设置Node.js环境
+                sh '''
+                    if command -v nvm &> /dev/null; then
+                        export NVM_DIR="$HOME/.nvm"
+                        [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+                        nvm use ${NODE_VERSION} || nvm install ${NODE_VERSION}
+                    fi
+                    
+                    node --version
+                    npm --version
+                '''
+            }
+        }
+        
+        stage('Install Dependencies') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                sh 'npm install'
+            }
+        }
+        
+        stage('Release Process') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    // 执行发布脚本
+                    sh "chmod +x bash/jenkins-release.sh"
+                    sh "bash/jenkins-release.sh ${env.RELEASE_TAG}"
+                }
+            }
+        }
+        
+        stage('Archive Artifacts') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                // 归档构建产物
+                archiveArtifacts artifacts: '*.zip', allowEmptyArchive: true
+                
+                // 可选：上传到artifactory或其他存储
+                script {
+                    def zipFiles = sh(
+                        script: 'ls *.zip 2>/dev/null || true',
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (zipFiles) {
+                        echo "Generated release packages: ${zipFiles}"
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            script {
+                if (env.RELEASE_TAG) {
+                    echo "✅ Release ${env.RELEASE_TAG} completed successfully!"
+                    
+                    // 可选：发送通知
+                    // emailext (
+                    //     subject: "Release ${env.RELEASE_TAG} Completed",
+                    //     body: "Release ${env.RELEASE_TAG} has been successfully built and deployed.",
+                    //     to: "team@company.com"
+                    // )
+                }
+            }
+        }
+        
+        failure {
+            script {
+                if (env.RELEASE_TAG) {
+                    echo "❌ Release ${env.RELEASE_TAG} failed!"
+                    
+                    // 可选：发送失败通知
+                    // emailext (
+                    //     subject: "Release ${env.RELEASE_TAG} Failed",
+                    //     body: "Release ${env.RELEASE_TAG} build failed. Please check the logs.",
+                    //     to: "team@company.com"
+                    // )
+                }
+            }
+        }
+        
+        always {
+            // 清理临时文件
+            sh '''
+                rm -f *.backup 2>/dev/null || true
+                echo "Cleanup completed"
+            '''
+        }
+    }
+} 
