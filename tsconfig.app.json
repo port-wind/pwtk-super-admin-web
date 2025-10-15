@@ -1,0 +1,20 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.dom.json",
+  "include": ["env.d.ts", "types/auto-imports.d.ts", "types/components.d.ts", "src/**/*", "public/wasm_exec.js"],
+  "exclude": [
+    "src/**/__tests__/*",
+    "src/**/*.spec.ts", // 排除测试文件
+    "src/**/*.test.ts" // 排除测试文件
+  ],
+  "compilerOptions": {
+    "moduleResolution": "node", // 模块解析策略为 Node.js 风格
+    "types": ["vue", "element-plus/global"],
+    "composite": true,
+    "verbatimModuleSyntax": true,
+    "noImplicitAny": false,
+    "baseUrl": "./", // 解析非相对模块名的基准目录
+    "paths": {
+      "@/*": ["src/*"] // 将所有以 "@/" 开头的模块映射到 "src/" 目录下
+    }
+  }
+}
