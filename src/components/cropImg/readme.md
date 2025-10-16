@@ -1,0 +1,5 @@
+// 定义 interface 类型 interface IClipper { type: string // 上传类型 allowTypeList: string[] // 接收允许上传的图片类型 limitSize: number // 限制大小 fixedNumber: number[] // 截图框的宽高比例 fixedNumberAider?: number[] // 侧边栏收起截图框的宽高比例 previewWidth: number // 预览宽度 previewWidthAider?: number // 侧边栏收起预览宽度 }
+
+const clipperData = ref<IClipper>({ type: 'browserLogo', // 该参数可根据实际要求修改类型 allowTypeList: ['png', 'jpg', 'jpeg'], // 允许上传的图片格式 limitSize: 1, // 限制的大小 fixedNumber: [1, 1], // 截图比例，可根据实际情况进行修改 previewWidth: 200 // 预览宽度 })
+
+- 保存 logo 自定义事件, 实际业务在此编写 \*/ const onConfirm = (val: any) => { console.log(val, '点击保存按钮后的图片信息') if (val) { let obj = { userId: basicList.value.id, avatar: val.path, avatarOriginal: val.oldImage } console.log(obj) userEdit(obj).then(async (res) => { if (res.success) { ElMessage({ message: t('button.edit') + t('errorCode.0'), type: 'success' }) basicList.value.avatar = val.fullAddress basicList.value.avatar\_ = await renderingImg(basicList.value.avatar) } else { ElMessage({ message: res.errMessage, type: 'error' }) } }) } }

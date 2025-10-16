@@ -1,0 +1,24 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# 获取当前分支名称
+current_branch=$(git symbolic-ref HEAD | sed -e 's,.*/\(.*\),\1,')
+
+# 检查是否正在推送到 main 或 master 分支
+protected_branches="^(main|master)$"
+
+if [[ "$current_branch" =~ $protected_branches ]]; then
+    echo "🚫 错误: 不允许直接 push 到 ${current_branch} 分支！"
+    echo "请使用 Pull Request 流程："
+    echo "  1. 切换到开发分支: git checkout dev"
+    echo "  2. 推送到开发分支: git push origin dev"
+    echo "  3. 通过 PR 合并到 ${current_branch} 分支"
+    exit 1
+fi
+
+npm run test
+
+
+
+
+
