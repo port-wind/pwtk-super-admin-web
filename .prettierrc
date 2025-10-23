@@ -1,0 +1,25 @@
+{
+  "useTabs": false,
+  "tabWidth": 2,
+  "printWidth": 120,
+  "singleQuote": true,
+  "trailingComma": "none",
+  "bracketSpacing": true,
+  "semi": false,
+  "htmlWhitespaceSensitivity": "ignore",
+  "singleAttributePerLine": true,
+  "proseWrap": "never",
+  "vueIndentScriptAndStyle": false,
+  "arrowParens": "always",
+  "bracketSameLine": false,
+  "jsxSingleQuote": true,
+  "quoteProps": "as-needed",
+  "overrides": [
+    {
+      "files": "*.vue",
+      "options": {
+        "singleAttributePerLine": false
+      }
+    }
+  ]
+}

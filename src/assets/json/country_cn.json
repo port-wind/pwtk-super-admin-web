@@ -1,0 +1,78 @@
+[
+  {
+    "country_code": "CN",
+    "country_name": "中国"
+  },
+  {
+    "country_code": "TW",
+    "country_name": "中国台湾"
+  },
+  {
+    "country_code": "HK",
+    "country_name": "中国香港"
+  },
+  {
+    "country_code": "MO",
+    "country_name": "中国澳门"
+  },
+  {
+    "country_code": "TH",
+    "country_name": "泰国"
+  },
+  {
+    "country_code": "KR",
+    "country_name": "韩国"
+  },
+  {
+    "country_code": "JP",
+    "country_name": "日本"
+  },
+  {
+    "country_code": "US",
+    "country_name": "美国"
+  },
+  {
+    "country_name": "越南",
+    "country_code": "VN"
+  },
+  {
+    "country_name": "新加坡",
+    "country_code": "SG"
+  },
+  {
+    "country_name": "马来西亚",
+    "country_code": "MY"
+  },
+  {
+    "country_name": "老挝",
+    "country_code": "LA"
+  },
+  {
+    "country_name": "菲律宾",
+    "country_code": "PH"
+  },
+  {
+    "country_name": "印度尼西亚",
+    "country_code": "ID"
+  },
+  {
+    "country_name": "柬埔寨",
+    "country_code": "KH"
+  },
+  {
+    "country_name": "缅甸",
+    "country_code": "MM"
+  },
+  {
+    "country_name": "俄罗斯",
+    "country_code": "RU"
+  },
+  {
+    "country_name": "乌克兰",
+    "country_code": "UA"
+  },
+  {
+    "country_name": "白俄罗斯",
+    "country_code": "BY"
+  }
+]
