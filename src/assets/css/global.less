@@ -1,0 +1,406 @@
+//搜索功能 样式统一管理
+#system_account .search_left {
+  // margin-bottom: 10px;
+
+  > div {
+    margin: 0 10px 10px 0;
+  }
+
+  .el-select {
+    .el-select__wrapper {
+      width: 6.25rem;
+    }
+  }
+
+  .el-input__wrapper {
+    width: 9rem;
+  }
+}
+//导航站管理样式单独处理
+#navSearchForm {
+  .el-form {
+    .el-form-item {
+      .el-form-item__content {
+        .el-select {
+          .el-select__wrapper {
+            width: 9rem;
+          }
+        }
+      }
+    }
+  }
+}
+
+#system_account .mDialog {
+  .el-input {
+    width: 21.25rem;
+  }
+  .el-textarea {
+    width: 21.25rem;
+  }
+  .el-select {
+    width: 21.25rem;
+  }
+  .el-date-picker {
+    width: 21.25rem;
+  }
+}
+#system_account .el-upload--picture-card {
+  height: 4rem;
+  width: 4rem;
+}
+
+#system_account .el-upload-list--picture-card .el-upload-list__item {
+  height: 4rem;
+  width: 4rem;
+}
+#system_account .m_form .el-input__wrapper {
+  max-width: 100%;
+}
+
+#system_account .m_form .el-form-item__content {
+  .form_action {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .el-input,
+  .el-select {
+    width: auto;
+    flex-grow: 1;
+  }
+
+  .el-autocomplete .el-input {
+    width: auto;
+    display: flex;
+    flex-grow: 1;
+  }
+}
+.button-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 10px 0;
+  /* 使按钮靠右对齐 */
+  // gap: 10px;
+}
+
+#sys_roles .el-table .el-table__cell,
+#system_account .el-table .el-table__cell {
+  padding: 4px 0;
+}
+
+// #system_account .post-content-footer {
+//   // display: flex;
+// }
+
+// 弹窗样式 统一处理
+.el-overlay {
+  .el-overlay-dialog {
+    .cropper_dialog {
+      width: 47%;
+      display: flex;
+      flex-direction: column;
+      > .el-dialog__body {
+        display: flex;
+        flex: 1;
+      }
+    }
+    // 弹窗tabs类型的统一处理（基于弹窗）
+    .tabs-dialog {
+      margin-top: 80px;
+      padding: 10px;
+      height: calc(100vh - 8.5rem);
+      // height: 86%;
+      width: 78%;
+      position: relative;
+      border-radius: 0.6rem;
+    }
+    // .el-dialog.is-draggable .el-dialog__header
+    .tabs-dialog > .el-dialog__header {
+      padding: 0;
+      margin: 0;
+      height: 0;
+
+      .el-dialog__headerbtn {
+        height: 40px;
+        width: 40px;
+        border-radius: 40px;
+        position: absolute;
+        background-color: #e4e7ed;
+        top: -20px;
+        right: -20px;
+        .el-dialog__close {
+          color: #eb2212;
+        }
+        .el-dialog__close:hover {
+          color: #343332;
+        }
+      }
+    }
+    .tabs-dialog > div.el-dialog__body {
+      // height: calc(100% - 1rem);
+      height: 99%;
+      overflow: hidden;
+      //内部form表单统一样式处理
+      .dialog-form {
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        .form-row {
+          justify-content: space-evenly;
+        }
+        .form-col-single {
+          margin: 0 auto;
+          width: 78%;
+        }
+      }
+
+      .m_form {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        .form-row {
+          justify-content: space-evenly;
+        }
+      }
+      .m_form > * {
+        max-width: 100%;
+      }
+      .el-form-item__label {
+        width: 8.125rem;
+      }
+
+      //单一表单样式处理
+      .single-form {
+        width: 600px;
+        margin: 0 auto;
+      }
+
+      //内部嵌套tabs样式处理
+      > .el-tabs {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        > .el-tabs__header {
+          margin: 0 0 10px;
+          .el-tabs__item {
+            height: 36px;
+            line-height: 40px;
+          }
+        }
+
+        > .el-tabs__content {
+          flex: 1;
+          position: static;
+          .m_tabs_pane {
+            display: flex;
+            flex-direction: column;
+          }
+          .el-tab-pane {
+            height: 100%;
+            > .el-tabs--left {
+              height: 100%;
+              .el-tabs__content {
+                height: 100%;
+                //客户端列表table样式
+                .el-tab-pane > #system_account {
+                  height: 100%;
+                  display: flex;
+                  flex-direction: column;
+
+                  .account-table {
+                    display: flex;
+                    flex-direction: column;
+                    flex: 1;
+                    overflow: hidden;
+                  }
+                }
+                .el-tab-pane > .account-table {
+                  display: flex;
+                  flex-direction: column;
+                  flex: 1;
+                  overflow: hidden;
+                }
+              }
+            }
+          }
+          .el-tab-pane > #system_account {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+
+            .account-table {
+              display: flex;
+              flex-direction: column;
+              flex: 1;
+              overflow: hidden;
+            }
+          }
+          .el-tab-pane > .account-table {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+          }
+          .el-tab-pane > .single-table {
+            height: 100%;
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+          }
+        }
+      }
+    }
+  }
+}
+
+// 表格图片样式统一处理
+.el-table__row {
+  .el-table__cell {
+    .cell {
+      .el-image {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.6rem;
+      }
+      .el-switch {
+        --el-switch-on-color: #13ce66;
+        --el-switch-off-color: #ff4949;
+      }
+    }
+  }
+}
+.full-height-flex-column {
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.flexible-content-container-inside {
+  height: 100%;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+// margin-bottom 48px
+.mb-48 {
+  margin-bottom: 3rem;
+}
+
+.mt-3 {
+  margin-top: 3rem;
+}
+
+.mr-3 {
+  margin-right: 3rem;
+}
+
+// 修改全集时间选择框
+#system_account .el-form-item__content .el-date-editor,
+#system_account .el-form .el-range-editor {
+  width: 340px;
+  padding: 0;
+  .el-range-separator {
+    line-height: 32px;
+    flex: 0;
+  }
+}
+
+#system_account .el-divider--horizontal {
+  margin: 10px 0;
+}
+
+// 主页表格样式
+.main_container {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  padding-bottom: 0.5rem;
+  .main_flex_table {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex: 1;
+  }
+}
+
+// 弹窗内部表头
+.header-inside-dialog {
+  display: flex;
+  margin: 0 20px 10px 20px;
+  h3 {
+    font-size: 15px !important;
+  }
+}
+
+.m_table_image .el-table__cell .cell {
+  padding: 0 4px;
+}
+
+.right-align {
+  display: flex;
+  justify-content: flex-end; /* 将内容靠右 */
+}
+
+.m-level-table-outside {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  .m-level-table-inside {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    .m-level-table-content {
+      margin: 0 20px 10px 20px;
+      overflow: hidden;
+      height: 100%;
+    }
+  }
+}
+
+//无图想显示默认样式
+.no_image-default {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 3rem;
+  width: 3rem;
+  // width: 50%;
+  // height: 100%;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 1.5rem;
+}
+
+//超出显示…
+.overflow-hidden {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.success-text {
+  color: #67c23a;
+}
+.failure-text {
+  color: #f56c6c;
+}
+
+.el-form--inline {
+  &.custom-el-form {
+    .el-form-item {
+      margin-right: 10px;
+    }
+    &.no-rule {
+      .el-form-item {
+        margin-bottom: 10px;
+      }
+    }
+  }
+}
+.ml-12px {
+  margin-left: 12px;
+}

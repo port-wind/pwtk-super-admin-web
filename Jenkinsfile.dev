@@ -1,0 +1,476 @@
+pipeline {
+    agent any
+
+    environment {
+        // 语言环境设置 (使用 en_US.UTF-8)
+        LANG = 'en_US.UTF-8'
+        LC_ALL = 'en_US.UTF-8'
+
+        // 项目配置
+        VITE_NODE_ENV = 'development'
+        PROJECT_NAME = 'pwtk-super-admin-web'
+
+        // 分支配置
+        BUILD_BRANCH = 'dev'
+        // Node 配置
+        NODE_VERSION = 'v18.20.4'
+        NODE_PATH = "/root/.nvm/versions/node/${NODE_VERSION}/bin"
+        PNPM_PATH = "/root/.nvm/versions/node/v18.20.4/bin/pnpm"
+
+        // 日志配置
+        BUILD_LOG_FILE = "${WORKSPACE}/build_${BUILD_NUMBER}_${BUILD_TIMESTAMP}.log"
+
+        // 部署目录（构建完成后同步到此目录）
+        DEPLOY_DIR = '/home/www/websites/frontend/pwtk-super-admin-web'
+    }
+
+    options {
+        // 保留最近 10 次构建
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        // 禁止并发构建
+        disableConcurrentBuilds()
+        // 构建超时时间
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    stages {
+        stage('初始化') {
+            steps {
+                script {
+                    // 加载工具函数库
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/lark.sh
+
+                        # 导出函数供后续使用
+                        export -f log_message
+                        export -f send_telegram_message
+                        export -f send_telegram_file
+                        export -f send_lark_message
+                        export -f send_lark_fix_notification
+                        export -f update_progress
+                        export -f get_network_time
+
+                        # 清理旧日志
+                        cleanup_old_logs "/tmp" "build_"
+
+                        # 初始化日志文件
+                        init_log_file
+
+                        log_message "=============== 构建开始 ==============="
+                        log_message "构建编号: ${BUILD_NUMBER}"
+                        log_message "工作目录: ${WORKSPACE}"
+                        log_message "部署目录: ${DEPLOY_DIR}"
+
+                        # 记录构建开始时间
+                        BUILD_START_TIME=$(get_network_time)
+                        BUILD_START_TIMESTAMP=$(get_timestamp "$BUILD_START_TIME")
+
+                        echo "BUILD_START_TIME='${BUILD_START_TIME}'" > ${WORKSPACE}/build_vars.env
+                        echo "BUILD_START_TIMESTAMP=${BUILD_START_TIMESTAMP}" >> ${WORKSPACE}/build_vars.env
+
+                        # 发送初始进度
+                        update_progress 0 "初始化"
+                    '''
+                }
+            }
+        }
+
+        stage('代码拉取') {
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/build_vars.env
+
+                        log_message "检查当前 Git 状态"
+                        log_message "当前目录: $(pwd)"
+                        log_message "当前分支: $(git rev-parse --abbrev-ref HEAD)"
+                        log_message "最新提交: $(git log -1 --oneline)"
+
+                        # 获取最新提交信息（Jenkins 已经通过 SCM 配置 checkout 了代码）
+                        # 使用 %ci 获取 ISO 格式日期，兼容旧版本 Git (1.8.3.1)
+                        LAST_COMMIT_DATE=$(git log -1 --format='%ci' | sed 's/ [+-][0-9]\\{4\\}$//')
+                        LAST_COMMIT_MESSAGE=$(git log -1 --pretty=format:"%s")
+                        LAST_COMMIT_HASH=$(git log -1 --pretty=format:"%H" | cut -c1-8)
+
+                        echo "LAST_COMMIT_DATE='${LAST_COMMIT_DATE}'" >> ${WORKSPACE}/build_vars.env
+                        echo "LAST_COMMIT_MESSAGE='${LAST_COMMIT_MESSAGE}'" >> ${WORKSPACE}/build_vars.env
+                        echo "LAST_COMMIT_HASH='${LAST_COMMIT_HASH}'" >> ${WORKSPACE}/build_vars.env
+
+                        log_message "提交日期: ${LAST_COMMIT_DATE}"
+                        log_message "提交信息: ${LAST_COMMIT_MESSAGE}"
+                        log_message "提交哈希: ${LAST_COMMIT_HASH}"
+
+                        # 提取从上次构建到本次构建的修复信息
+                        log_message "提取本次构建的修复信息"
+
+                        # 获取上次成功构建的提交 hash
+                        LAST_SUCCESS_HASH=$(cat ${WORKSPACE}/.last_success_commit 2>/dev/null || echo "")
+
+                        if [ -z "${LAST_SUCCESS_HASH}" ]; then
+                            log_message "首次构建，提取最近 20 个 fix 提交"
+                            FIX_COMMITS=$(git log -20 --oneline | grep -E "^[a-f0-9]+ fix[:(]" || true)
+                        else
+                            log_message "上次成功构建: ${LAST_SUCCESS_HASH}"
+                            log_message "提取从 ${LAST_SUCCESS_HASH} 到当前的修复"
+                            FIX_COMMITS=$(git log ${LAST_SUCCESS_HASH}..HEAD --oneline | grep -E "^[a-f0-9]+ fix[:(]" || true)
+                        fi
+
+                        if [ -z "${FIX_COMMITS}" ]; then
+                            log_message "没有找到包含 fix: 的提交"
+                            echo "FIX_LIST='无修复记录'" >> ${WORKSPACE}/build_vars.env
+                            echo "FIX_COUNT=0" >> ${WORKSPACE}/build_vars.env
+                        else
+                            FIX_COUNT=$(echo "$FIX_COMMITS" | wc -l)
+                            log_message "找到 ${FIX_COUNT} 个修复:"
+                            echo "$FIX_COMMITS" | while IFS= read -r line; do
+                                log_message "  - $line"
+                            done
+
+                            # 格式化修复列表
+                            FIX_LIST=$(echo "$FIX_COMMITS" | awk '{
+                                hash = $1
+                                $1 = ""
+                                msg = $0
+                                gsub(/^[ \\t]+/, "", msg)
+                                # 提取 issue 编号（如果有）
+                                if (match(msg, /#[0-9]+/)) {
+                                    issue = substr(msg, RSTART, RLENGTH)
+                                    printf "• %s %s\\\\n", issue, msg
+                                } else {
+                                    printf "• %s\\\\n", msg
+                                }
+                            }')
+
+                            echo "FIX_LIST='${FIX_LIST}'" >> ${WORKSPACE}/build_vars.env
+                            echo "FIX_COUNT=${FIX_COUNT}" >> ${WORKSPACE}/build_vars.env
+                        fi
+
+                        # 发送构建开始通知
+                        send_build_start_notification \
+                            "${PROJECT_NAME}" \
+                            "${BUILD_START_TIME}" \
+                            "${LAST_COMMIT_DATE}" \
+                            "${LAST_COMMIT_MESSAGE}" \
+                            "${BUILD_BRANCH}" \
+                            "${VITE_NODE_ENV}"
+
+                        # 20% - 代码拉取完成
+                        update_progress 20 "代码拉取完成"
+                    '''
+                }
+            }
+        }
+
+        stage('依赖安装') {
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/build_vars.env
+
+                        # 添加 Node 到 PATH
+                        export PATH="${NODE_PATH}:$PATH"
+
+                        log_message "Node 版本: $(node -v)"
+                        log_message "pnpm 版本: $(${PNPM_PATH} -v)"
+
+                        log_message "清理旧的 node_modules"
+                        rm -rf node_modules
+
+                        log_message "开始安装依赖（使用 pnpm install）"
+                        INSTALL_START=$(date +%s)
+                        
+                        # 使用 pnpm install（frozen-lockfile 确保与 pnpm-lock.yaml 一致）
+                        if [ -f pnpm-lock.yaml ]; then
+                            log_message "使用 pnpm install --frozen-lockfile 进行安装"
+                            if ! ${PNPM_PATH} install --frozen-lockfile 2>&1 | tee -a "$BUILD_LOG_FILE"; then
+                                log_message "frozen-lockfile 失败，尝试普通安装"
+                                
+                                if ! ${PNPM_PATH} install 2>&1 | tee -a "$BUILD_LOG_FILE"; then
+                                    log_message "错误: pnpm install 失败"
+
+                                    # 计算失败时长
+                                    FAIL_TIME=$(get_network_time)
+                                    FAIL_TIMESTAMP=$(get_timestamp "$FAIL_TIME")
+                                    eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${FAIL_TIMESTAMP})
+
+                                    # 发送失败通知
+                                    send_build_failure_notification \
+                                        "${PROJECT_NAME}" \
+                                        "${FAIL_TIME}" \
+                                        "${LAST_COMMIT_DATE}" \
+                                        "${LAST_COMMIT_MESSAGE}" \
+                                        "${LAST_COMMIT_HASH}" \
+                                        "${BUILD_BRANCH}" \
+                                        "${VITE_NODE_ENV}" \
+                                        "pnpm install" \
+                                        "依赖安装失败" \
+                                        "${MINUTES}" \
+                                        "${SECONDS}"
+
+                                    send_telegram_file "$BUILD_LOG_FILE" "❌ 构建失败 - 完整日志"
+                                    exit 1
+                                fi
+                            fi
+                        else
+                            log_message "pnpm-lock.yaml 不存在，使用 pnpm install"
+                            if ! ${PNPM_PATH} install 2>&1 | tee -a "$BUILD_LOG_FILE"; then
+                                log_message "错误: pnpm install 失败"
+
+                                # 计算失败时长
+                                FAIL_TIME=$(get_network_time)
+                                FAIL_TIMESTAMP=$(get_timestamp "$FAIL_TIME")
+                                eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${FAIL_TIMESTAMP})
+                                # 发送失败通知
+                                send_build_failure_notification \
+                                    "${PROJECT_NAME}" \
+                                    "${FAIL_TIME}" \
+                                    "${LAST_COMMIT_DATE}" \
+                                    "${LAST_COMMIT_MESSAGE}" \
+                                    "${LAST_COMMIT_HASH}" \
+                                    "${BUILD_BRANCH}" \
+                                    "${VITE_NODE_ENV}" \
+                                    "pnpm install" \
+                                    "依赖安装失败" \
+                                    "${MINUTES}" \
+                                    "${SECONDS}"
+
+                                send_telegram_file "$BUILD_LOG_FILE" "❌ 构建失败 - 完整日志"
+                                exit 1
+                            fi
+                        fi
+
+                        INSTALL_END=$(date +%s)
+                        INSTALL_DURATION=$((INSTALL_END - INSTALL_START))
+                        log_message "依赖安装完成，耗时: ${INSTALL_DURATION}秒"
+
+                        # 50% - 依赖安装完成
+                        update_progress 50 "依赖安装完成"
+                    '''
+                }
+            }
+        }
+
+        stage('项目构建') {
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/build_vars.env
+                        export PATH="${NODE_PATH}:$PATH"
+
+                        log_message "开始执行构建"
+                        if ! ${PNPM_PATH} run build 2>&1 | tee -a "$BUILD_LOG_FILE"; then
+                            log_message "错误: build 失败"
+
+                            # 计算失败时长
+                            FAIL_TIME=$(get_network_time)
+                            FAIL_TIMESTAMP=$(get_timestamp "$FAIL_TIME")
+                            eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${FAIL_TIMESTAMP})
+
+                            # 发送失败通知
+                            send_build_failure_notification \
+                                "${PROJECT_NAME}" \
+                                "${FAIL_TIME}" \
+                                "${LAST_COMMIT_DATE}" \
+                                "${LAST_COMMIT_MESSAGE}" \
+                                "${LAST_COMMIT_HASH}" \
+                                "${BUILD_BRANCH}" \
+                                "${VITE_NODE_ENV}" \
+                                "build" \
+                                "构建命令执行失败" \
+                                "${MINUTES}" \
+                                "${SECONDS}"
+
+                            send_telegram_file "$BUILD_LOG_FILE" "❌ 构建失败 - 完整日志"
+                            exit 1
+                        fi
+
+                        # 80% - 构建完成
+                        update_progress 80 "构建完成"
+                    '''
+                }
+            }
+        }
+
+        stage('同步部署') {
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/build_vars.env
+
+                        log_message "检查构建产物"
+                        if [ ! -d "${WORKSPACE}/dist" ]; then
+                            log_message "错误: 构建产物目录不存在"
+
+                            # 计算失败时长
+                            FAIL_TIME=$(get_network_time)
+                            FAIL_TIMESTAMP=$(get_timestamp "$FAIL_TIME")
+                            eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${FAIL_TIMESTAMP})
+
+                            # 发送失败通知
+                            send_build_failure_notification \
+                                "${PROJECT_NAME}" \
+                                "${FAIL_TIME}" \
+                                "${LAST_COMMIT_DATE}" \
+                                "${LAST_COMMIT_MESSAGE}" \
+                                "${LAST_COMMIT_HASH}" \
+                                "${BUILD_BRANCH}" \
+                                "${VITE_NODE_ENV}" \
+                                "检查构建产物" \
+                                "构建产物目录不存在" \
+                                "${MINUTES}" \
+                                "${SECONDS}"
+
+                            send_telegram_file "$BUILD_LOG_FILE" "❌ 构建失败 - 完整日志"
+                            exit 1
+                        fi
+
+                        log_message "同步构建产物到部署目录"
+                        log_message "源目录: ${WORKSPACE}/dist"
+                        log_message "目标目录: ${DEPLOY_DIR}/dist"
+
+                        # 创建部署目录（如果不存在）
+                        mkdir -p ${DEPLOY_DIR}
+
+                        # 同步构建产物
+                        rsync -av --delete ${WORKSPACE}/dist/ ${DEPLOY_DIR}/dist/ 2>&1 | tee -a "$BUILD_LOG_FILE"
+
+                        log_message "部署完成"
+
+                        # 90% - 部署完成
+                        update_progress 90 "部署完成"
+                    '''
+                }
+            }
+        }
+
+        stage('禅道Bug追踪') {
+            steps {
+                script {
+                    withCredentials([
+                        usernamePassword(credentialsId: 'zentao-credentials', usernameVariable: 'ZENTAO_USERNAME', passwordVariable: 'ZENTAO_PASSWORD')
+                    ]) {
+                        sh '''
+                            source ${WORKSPACE}/jenkins/lib/logger.sh
+                            source ${WORKSPACE}/jenkins/lib/lark.sh
+                            source ${WORKSPACE}/jenkins/lib/zentao_dev.sh
+
+                            # 自动解决最近一次提交中的 Bug
+                            resolve_zentao_bugs
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            script {
+                sh '''
+                    source ${WORKSPACE}/jenkins/lib/logger.sh
+                    source ${WORKSPACE}/jenkins/lib/telegram.sh
+                    source ${WORKSPACE}/jenkins/lib/lark.sh
+                    source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                    source ${WORKSPACE}/build_vars.env
+
+                    # 统计构建日志
+                    log_message "统计构建日志"
+                    eval $(get_log_stats)
+
+                    log_message "Warning数量: ${WARNING_COUNT}"
+                    log_message "Error数量: ${ERROR_COUNT}"
+
+                    # 计算构建耗时
+                    BUILD_END_TIME=$(get_network_time)
+                    BUILD_END_TIMESTAMP=$(get_timestamp "$BUILD_END_TIME")
+                    eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${BUILD_END_TIMESTAMP})
+
+                    log_message "=============== 构建完成 ==============="
+                    log_message "总耗时: ${MINUTES}分${SECONDS}秒"
+
+                    # 100% - 完成
+                    update_progress 100 "构建完成"
+
+                    # 发送构建成功通知和日志
+                    send_build_success_notification \
+                        "${PROJECT_NAME}" \
+                        "${BUILD_END_TIME}" \
+                        "${LAST_COMMIT_DATE}" \
+                        "${LAST_COMMIT_MESSAGE}" \
+                        "${LAST_COMMIT_HASH}" \
+                        "${BUILD_BRANCH}" \
+                        "${VITE_NODE_ENV}" \
+                        "${MINUTES}" \
+                        "${SECONDS}"
+
+                    send_telegram_file "$BUILD_LOG_FILE" "✅ 构建成功 - 完整日志"
+
+                    # 如果有修复记录，发送到 Lark
+                    if [ "${FIX_COUNT:-0}" -gt 0 ]; then
+                        log_message "发送修复通知到 Lark (${FIX_COUNT} 个修复)"
+
+                        # 解码换行符
+                        FORMATTED_FIXES=$(echo -e "${FIX_LIST}")
+
+                        # 发送到 Lark
+                        send_lark_fix_notification \
+                            "${PROJECT_NAME}" \
+                            "${BUILD_END_TIME}" \
+                            "${LAST_COMMIT_HASH}" \
+                            "${FIX_COUNT}" \
+                            "${FORMATTED_FIXES}" \
+                            "${BUILD_BRANCH}" \
+                            "${VITE_NODE_ENV}"
+                    else
+                        log_message "本次构建无修复记录，跳过 Lark 通知"
+                    fi
+
+                    # 保存当前构建的 commit hash，供下次构建使用
+                    echo "${LAST_COMMIT_HASH}" > ${WORKSPACE}/.last_success_commit
+                    log_message "保存成功构建标记: ${LAST_COMMIT_HASH}"
+
+                    # 保留日志文件供后续查看
+                    log_message "日志文件保存在: $BUILD_LOG_FILE"
+                '''
+            }
+        }
+
+        failure {
+            script {
+                sh '''
+                    source ${WORKSPACE}/jenkins/lib/logger.sh
+                    source ${WORKSPACE}/jenkins/lib/telegram.sh
+
+                    log_message "构建失败，请查看日志"
+
+                    # 如果之前的 stage 没有发送失败通知，这里发送一个通用的失败通知
+                    if [ -f "${WORKSPACE}/build_vars.env" ]; then
+                        source ${WORKSPACE}/build_vars.env
+                        send_telegram_message "❌ 构建失败 - ${PROJECT_NAME} - 请查看 Jenkins 日志"
+                    fi
+                '''
+            }
+        }
+
+        always {
+            script {
+                // 归档构建日志
+                archiveArtifacts artifacts: 'build_*.log', allowEmptyArchive: true
+            }
+        }
+    }
+}

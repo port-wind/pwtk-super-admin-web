@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link
+      rel="icon"
+      href="/favicon.ico"
+      type="image/x-icon"
+    />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
+    <meta
+      name="referrer"
+      content="no-referrer"
+    />
+    <script src="/webConfigApi.js?t=<%= buildTime %>"></script>
+    <script src="/tinymce/tinymce.min.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script
+      type="module"
+      src="/src/main.ts"
+    ></script>
+    <!-- 加解密-->
+    <script
+      type="text/javascript"
+      src="wasm_exec.js"
+    ></script>
+    <script>
+      const go = new Go()
+      WebAssembly.instantiateStreaming(fetch(window.webConfigApi.wasmPath), go.importObject).then((result) => {
+        go.run(result.instance)
+      })
+    </script>
+  </body>
+</html>

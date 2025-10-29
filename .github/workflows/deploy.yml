@@ -1,0 +1,203 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号"
+        required: false
+        type: string
+      change_log:
+        description: "变更说明"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Read version from tags
+      id: version
+      run: |
+        if [ "${{ github.event.inputs.version }}" != "" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          git fetch --tags --force
+          LATEST_TAG=$(git tag -l "v[0-9]*" | sort -V | tail -n 1)
+          if [ -n "$LATEST_TAG" ]; then
+            VERSION="$LATEST_TAG"
+          else
+            VERSION="v$(date +%Y%m%d%H%M%S)"
+          fi
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+  request-approval:
+    needs: build
+    uses: ./.github/workflows/reusable-lark-approval.yml
+    with:
+      project_type: pages
+      project_name: pwtk-super-admin-web
+      version: ${{ needs.build.outputs.version }}
+      change_log: ${{ github.event.inputs.change_log || 'Production deployment' }}
+    secrets:
+      LARK_APP_ID: ${{ secrets.LARK_APP_ID }}
+      LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+      LARK_CHAT_ID: ${{ secrets.LARK_CHAT_ID }}
+      APPROVAL_CALLBACK_BASE: ${{ secrets.APPROVAL_CALLBACK_BASE }}
+      CALLBACK_SIGN: ${{ secrets.CALLBACK_SIGN }}
+
+  deploy:
+    needs: [build, request-approval]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Replace webConfigApi.js for SuperAdmin
+      run: |
+        CONFIG_FILE="public/webConfigApi.js"
+        
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ 未找到 $CONFIG_FILE"
+          exit 1
+        fi
+        
+        echo "📍 替换配置文件: $CONFIG_FILE"
+        
+        DEPLOY_VERSION="${{ needs.build.outputs.version }}"
+        VERSION_NUMBER="${DEPLOY_VERSION#v}"
+        
+        echo "📌 版本号: $VERSION_NUMBER"
+        
+        sed -i "s|apiPath: '[^']*'|apiPath: 'https://sa.tkonline.cc'|g" "$CONFIG_FILE"
+        sed -i "s|logoPath: '[^']*'|logoPath: 'https://stt.pwtk.cc/devmedia/photossys/guarantee/img/24/11/18/6452534cc56f4a86a754f89e0407c457.png'|g" "$CONFIG_FILE"
+        sed -i "s|phone: '[^']*'|phone: '000-000-0000'|g" "$CONFIG_FILE"
+        sed -i "s|whatsapp: '[^']*'|whatsapp: '000-000-0000'|g" "$CONFIG_FILE"
+        sed -i "s|facebook: '[^']*'|facebook: 'https://www.facebook.com/'|g" "$CONFIG_FILE"
+        sed -i "s|instagram: '[^']*'|instagram: 'https://www.instagram.com/'|g" "$CONFIG_FILE"
+        sed -i "s|PUBLIC_KV_URL: '[^']*'|PUBLIC_KV_URL: 'https://ocs.ai4funs.com/pwtkprd'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_PROXY_UPLOAD: '[^']*'|VITE_PROXY_UPLOAD: 'https://upload.tkonline.cc'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_SERVER_CALLBACK: '[^']*'|VITE_SERVER_CALLBACK: 'https://tk2cdn.ai4funs.com/'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_CDN_URL: '[^']*'|VITE_CDN_URL: 'https://tk2cdn.ai4funs.com/'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_STORY_TYPE: '[^']*'|VITE_STORY_TYPE: 's3'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_STORAGE_BUCKET: '[^']*'|VITE_STORAGE_BUCKET: 'prod'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_NODE_ENV: '[^']*'|VITE_NODE_ENV: 'prod'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_CHAT_DOMAIN: '[^']*'|VITE_CHAT_DOMAIN: 'https://vchat.bugacard.com:7089'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_PUBLIC_ENCRYPTION_URL: '[^']*'|VITE_PUBLIC_ENCRYPTION_URL: 'https://msecret.pwtk.cc'|g" "$CONFIG_FILE"
+        sed -i "s|VITE_PUBLIC_AES_KEY_VERSION: '[^']*'|VITE_PUBLIC_AES_KEY_VERSION: '0'|g" "$CONFIG_FILE"
+        sed -i "s|version: '[^']*'|version: '$VERSION_NUMBER'|g" "$CONFIG_FILE"
+        
+        if ! grep -q "apiPathBeforeLogin:" "$CONFIG_FILE"; then
+          awk '/apiPath:/ {print; print "  apiPathBeforeLogin: '"'"'./'"'"',"; next}1' "$CONFIG_FILE" > "$CONFIG_FILE.tmp"
+          mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+        fi
+        
+        echo "✅ 配置替换完成 (SuperAdmin 生产环境)"
+        echo "📌 版本号已更新为: $VERSION_NUMBER"
+        echo "📄 最终配置:"
+        cat "$CONFIG_FILE"
+    
+    - name: Configure Base Path
+      run: |
+        for CONFIG_FILE in vite.config.js vite.config.ts; do
+          if [ -f "$CONFIG_FILE" ]; then
+            if grep -q "base:" "$CONFIG_FILE"; then
+              perl -i -pe "s|base:\s*['\"].*?['\"]|base: '/superadmin/'|g" "$CONFIG_FILE"
+            else
+              sed -i "/defineConfig({/a\  base: '/superadmin/'," "$CONFIG_FILE"
+              sed -i "/return {/a\    base: '/superadmin/'," "$CONFIG_FILE"
+            fi
+            break
+          fi
+        done
+    
+    - name: Install dependencies
+      run: npm install --legacy-peer-deps
+    
+    - name: Build
+      run: npm run build
+
+    - name: Reorganize for Superadmin Path
+      run: |
+        cd dist
+        mkdir -p superadmin_temp
+        for item in * .[^.]*; do
+          if [ "$item" != "superadmin_temp" ] && [ "$item" != "_redirects" ] && [ -e "$item" ]; then
+            mv "$item" superadmin_temp/
+          fi
+        done
+        mv superadmin_temp superadmin
+    
+    - name: Deploy to Cloudflare Pages
+      run: |
+        npm install wrangler@3.90.0 --legacy-peer-deps
+        npx wrangler pages deploy dist --project-name=pwtk-super-admin-web
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    
+    - name: Create Release
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          try {
+            const version = '${{ needs.build.outputs.version }}';
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: version,
+              name: 'Release ' + version,
+              body: 'Production Deployment - Version: ' + version,
+              draft: false,
+              prerelease: false
+            });
+            console.log('✅ Release created successfully');
+          } catch (error) {
+            console.log('Release creation skipped:', error.message);
+          }
+
+  notify-lark:
+    needs: [build, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Lark Notification
+        env:
+          LARK_APP_ID: ${{ secrets.LARK_APP_ID }}
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+          LARK_CHAT_ID: ${{ secrets.LARK_CHAT_ID }}
+        run: |
+          command -v jq >/dev/null 2>&1 || { sudo apt-get update -y >/dev/null; sudo apt-get install -y jq >/dev/null; }
+          TAT=$(curl -sS -X POST 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal' -H 'Content-Type: application/json; charset=utf-8' -d "{\"app_id\":\"${LARK_APP_ID}\",\"app_secret\":\"${LARK_APP_SECRET}\"}" | jq -r '.tenant_access_token')
+          if [ -n "$TAT" ] && [ "$TAT" != "null" ]; then
+            if [ "${{ needs.deploy.result }}" = "success" ]; then
+              MSG_TEXT="[pwtk-super-admin-web] ✅ Production 部署成功 - 版本: ${{ needs.build.outputs.version }}"
+            else
+              MSG_TEXT="[pwtk-super-admin-web] ❌ Production 部署失败 - 版本: ${{ needs.build.outputs.version }}"
+            fi
+            curl -sS -X POST 'https://open.larksuite.com/open-apis/im/v1/messages?receive_id_type=chat_id' -H "Authorization: Bearer ${TAT}" -H 'Content-Type: application/json; charset=utf-8' -d "{\"receive_id\":\"${LARK_CHAT_ID}\",\"msg_type\":\"text\",\"content\":\"{\\\"text\\\":\\\"$MSG_TEXT\\\"}\"}"
+            echo "✅ 飞书通知已发送"
+          fi
