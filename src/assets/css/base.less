@@ -1,0 +1,391 @@
+/* color palette from <https://github.com/vuejs/theme> */
+// :root {
+//   --vt-c-white: #ffffff;
+//   --vt-c-white-soft: #f8f8f8;
+//   --vt-c-white-mute: #f2f2f2;
+
+//   --vt-c-black: #181818;
+//   --vt-c-black-soft: #222222;
+//   --vt-c-black-mute: #282828;
+
+//   --vt-c-indigo: #2c3e50;
+
+//   --vt-c-divider-light-1: rgba(60, 60, 60, 0.29);
+//   --vt-c-divider-light-2: rgba(60, 60, 60, 0.12);
+//   --vt-c-divider-dark-1: rgba(84, 84, 84, 0.65);
+//   --vt-c-divider-dark-2: rgba(84, 84, 84, 0.48);
+
+//   --vt-c-text-light-1: var(--vt-c-indigo);
+//   --vt-c-text-light-2: rgba(60, 60, 60, 0.66);
+//   --vt-c-text-dark-1: var(--vt-c-white);
+//   --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
+// }
+
+// /* semantic color variables for this project */
+// :root {
+//   --color-background: var(--vt-c-white);
+//   --color-background-soft: var(--vt-c-white-soft);
+//   --color-background-mute: var(--vt-c-white-mute);
+
+//   --color-border: var(--vt-c-divider-light-2);
+//   --color-border-hover: var(--vt-c-divider-light-1);
+
+//   --color-heading: var(--vt-c-text-light-1);
+//   --color-text: var(--vt-c-text-light-1);
+
+//   --section-gap: 160px;
+// }
+
+// @media (prefers-color-scheme: dark) {
+//   :root {
+//     --color-background: var(--vt-c-black);
+//     --color-background-soft: var(--vt-c-black-soft);
+//     --color-background-mute: var(--vt-c-black-mute);
+
+//     --color-border: var(--vt-c-divider-dark-2);
+//     --color-border-hover: var(--vt-c-divider-dark-1);
+
+//     --color-heading: var(--vt-c-text-dark-1);
+//     --color-text: var(--vt-c-text-dark-2);
+//   }
+// }
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  font-weight: normal;
+}
+
+body {
+  min-height: 100vh;
+  transition: color 0.5s, background-color 0.5s;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Fira Sans',
+    'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0 !important;
+}
+
+/* 修改tips展示标签 */
+.el-popper {
+  .tag_info {
+    display: inline-block;
+    margin: 5px 0px;
+
+    .tag_show {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 12px;
+      height: 24px;
+      border: 1px solid #d9ecff;
+      border-radius: 4px;
+      padding: 0 9px;
+      background-color: #ecf5ff;
+      margin-right: 10px;
+
+      .el-text {
+        font-size: 12px;
+        color: #409eff;
+      }
+    }
+  }
+}
+
+.color_red {
+  color: #f56c6c !important;
+}
+
+.color_green {
+  color: #67c23a !important;
+}
+
+.color_blue {
+  color: #409eff !important;
+}
+
+.color_yellow {
+  color: #e6a23c !important;
+}
+
+// 全局分页
+.pagination {
+  margin-top: 12px;
+  width: 100%;
+}
+// 全局图片--error
+.el-image {
+  .el-image__error {
+    font-size: 0px !important;
+  }
+}
+/*修改全局的滚动条*/
+/*滚动条的宽度*/
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #c8c9cc;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #b1b3b8;
+}
+// /*表格*/
+// .el-table__body-wrapper::-webkit-scrollbar {
+// 	width: 10px;
+// 	height: 10px;
+// }
+// .el-table__body-wrapper::-webkit-scrollbar-thumb {
+// 	background-color: #a1a3a9;
+// 	border-radius: 3px;
+// }
+
+// IM状态
+.redcircle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: red;
+  border-radius: 50%;
+  box-shadow: 0 0 0px 3px rgba(245, 108, 108, 0.5);
+  right: 15px;
+}
+.greencircle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: green;
+  border-radius: 50%;
+  box-shadow: 0 0 0px 3px rgba(103, 194, 58, 0.5);
+  right: 15px;
+}
+
+/*国际化样式 --- EN*/
+// #home.en {
+//   #menu {
+//     .aside {
+//       width: 250px !important;
+//     }
+//     .el-menu-vertical-demo:not(.el-menu--collapse) {
+//       width: 250px !important;
+//     }
+//   }
+//   .el-form--label-right {
+//     .el-form-item {
+//       > .el-form-item__label {
+//         width: 210px !important;
+//       }
+//     }
+//   }
+//   .search {
+//     .el-input {
+//       width: 300px !important;
+//     }
+//     .el-autocomplete {
+//       width: 300px !important;
+//     }
+//     .el-select {
+//       width: 300px !important;
+//     }
+//     .long-input {
+//       width: 450px !important;
+//       .el-input {
+//         width: 450px !important;
+//       }
+//     }
+//   }
+//   .creatUser {
+//     .el-form-item {
+//       > .el-form-item__label {
+//         width: 200px !important;
+//       }
+//     }
+//     .one {
+//       .phoneCode {
+//         width: 130px !important;
+//         .el-input {
+//           width: 130px !important;
+//         }
+//       }
+//     }
+//     .three {
+//       .el-input {
+//         width: 240px !important;
+//       }
+//     }
+//     .el-select {
+//       width: 250px !important;
+//     }
+//     .el-input {
+//       width: 250px !important;
+//     }
+//   }
+//   .basicc {
+//     .el-form-item {
+//       > .el-form-item__label {
+//         width: 220px !important;
+//       }
+//     }
+//   }
+// #atlas_add,
+// #videoMan {
+//   #search_user {
+//     left: 510px !important;
+//   }
+//   .amount-input {
+//     width: 300px !important;
+//   }
+// }
+// .label-search {
+//   .el-input {
+//     width: 300px !important;
+//   }
+//   .el-select {
+//     width: 300px !important;
+//   }
+// }
+// .gift_dialog {
+//   .el-form-item {
+//     > .el-form-item__label {
+//       width: 150px !important;
+//     }
+//   }
+// }
+// #transfer_score {
+//   .info_icon {
+//     width: 88% !important;
+//   }
+//   .info_card {
+//     width: 88% !important;
+//     .show_info {
+//       .user_info {
+//         .el-row {
+//           span {
+//             width: 160px !important;
+//           }
+//         }
+//       }
+//     }
+//     .no_data {
+//       font-size: 14px !important;
+//     }
+//   }
+// }
+// .quota_dialog {
+//   .el-form-item {
+//     > .el-form-item__label {
+//       width: 220px !important;
+//     }
+//   }
+//   .el-input {
+//     width: 300px !important;
+//   }
+//   .short-input {
+//     width: 240px !important;
+//   }
+// }
+// .review_dialog {
+//   .user_info {
+//     .el-row {
+//       span {
+//         width: 160px !important;
+//       }
+//     }
+//   }
+// }
+// #add_template {
+//   #search_user {
+//     left: 654px !important;
+//   }
+//   #search_template {
+//     left: 654px !important;
+//   }
+//   .download_upload {
+//     margin-left: 200px !important;
+//   }
+// }
+//   #hireDomain {
+//     .el-dialog {
+//       .el-form-item {
+//         > .el-form-item__label {
+//           width: 230px !important;
+//         }
+//       }
+//       .block {
+//         .el-input {
+//           width: 250px !important;
+//           .el-input__wrapper {
+//             width: 244px !important;
+//           }
+//         }
+//       }
+//     }
+//   }
+//   .details_dialog {
+//     .reply {
+//       margin-left: 100px !important;
+//     }
+//   }
+//   .search__ {
+//     .el-input {
+//       width: 300px !important;
+//     }
+//     .el-select {
+//       width: 300px !important;
+//     }
+//   }
+//   .roles {
+//     .account-search {
+//       .el-input {
+//         width: 250px !important;
+//       }
+//     }
+//   }
+//   .long-label {
+//     .el-form-item {
+//       > .el-form-item__label {
+//         width: 220px !important;
+//       }
+//     }
+//   }
+//   .dictionary {
+//     .account-search {
+//       .el-input {
+//         width: 220px !important;
+//       }
+//     }
+//   }
+//   // 长label
+//   .long_label {
+//     .el-form-item {
+//       .el-form-item__label {
+//         width: 250px !important;
+//       }
+//     }
+//   }
+// }
+
+// .l-w {
+//   width: 180px !important;
+// }
+
+// 修改全局手势
+/* 应用到特定元素 */
+body {
+  .element-to-lj {
+    cursor: url('/src/assets/images/lianjie.png'), pointer !important; /* 这将应用自定义的手势图标 */
+  }
+  a {
+    cursor: url('/src/assets/images/tanchuang.png'), pointer; /* 这将应用自定义的手势图标 */
+  }
+  .like-a {
+    color: #0000ee;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+}

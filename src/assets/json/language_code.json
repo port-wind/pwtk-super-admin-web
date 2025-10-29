@@ -1,0 +1,54 @@
+[
+  {
+    "language_code": "CN",
+    "language_name": "中文简体"
+  },
+  {
+    "language_code": "TC",
+    "language_name": "中文繁体"
+  },
+  {
+    "language_code": "EN",
+    "language_name": "ENGLISH"
+  },
+  {
+    "language_code": "JP",
+    "language_name": "にほんご"
+  },
+  {
+    "language_code": "KR",
+    "language_name": "대한민국"
+  },
+  {
+    "language_code": "TH",
+    "language_name": "ประเทศไทย"
+  },
+  {
+    "language_code": "FRN",
+    "language_name": "française"
+  },
+  {
+    "language_code": "DE",
+    "language_name": "Deutschland"
+  },
+  {
+    "language_code": "IT",
+    "language_name": "Italiana"
+  },
+  {
+    "language_code": "ES",
+    "language_name": "España"
+  },
+  {
+    "language_code": "PT",
+    "language_name": "Português"
+  },
+  {
+    "language_code": "AR",
+    "language_name": "اللغة العربية"
+  },
+  {
+    "language_code": "VI",
+    "language_name": "Tiếng Việt"
+  }
+]

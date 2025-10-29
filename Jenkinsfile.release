@@ -1,0 +1,644 @@
+pipeline {
+    agent any
+
+    environment {
+        // 语言环境设置 (使用 en_US.UTF-8)
+        LANG = 'en_US.UTF-8'
+        LC_ALL = 'en_US.UTF-8'
+
+        // 项目配置
+        PROJECT_NAME = 'pwtk-super-admin-web'
+
+        // Node 配置
+        NODE_VERSION = 'v18.20.4'
+        NODE_PATH = "/root/.nvm/versions/node/${NODE_VERSION}/bin"
+        PNPM_PATH = "/root/.nvm/versions/node/v18.20.4/bin/pnpm"
+
+        // 日志配置
+        BUILD_LOG_FILE = "${WORKSPACE}/release_${BUILD_NUMBER}_${BUILD_TIMESTAMP}.log"
+
+        // 部署目录（构建完成后同步到此目录）
+        DEPLOY_DIR = '/home/www/websites/frontend/pwtk-super-admin-web'
+
+        // 发布记录目录（用于记录已发布的 tag）
+        RELEASE_RECORDS_DIR = '/home/www/jenkins-release-records/pwtk-super-admin-web'
+    }
+
+    options {
+        // 保留最近 10 次构建
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        // 禁止并发构建
+        disableConcurrentBuilds()
+        // 构建超时时间
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
+    // 手动触发，不自动轮询
+    // triggers {
+    //     pollSCM('H/5 * * * *')
+    // }
+
+    stages {
+        stage('初始化和检查 Tag') {
+            steps {
+                script {
+                    // 加载工具函数库
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+
+                        # 清理旧日志
+                        cleanup_old_logs "/tmp" "release_"
+
+                        # 初始化日志文件
+                        init_log_file
+
+                        log_message "=============== 发布流程开始 ==============="
+                        log_message "构建编号: ${BUILD_NUMBER}"
+                        log_message "工作目录: ${WORKSPACE}"
+
+                        # 记录构建开始时间
+                        BUILD_START_TIME=$(get_network_time)
+                        BUILD_START_TIMESTAMP=$(get_timestamp "$BUILD_START_TIME")
+
+                        echo "BUILD_START_TIME='${BUILD_START_TIME}'" > ${WORKSPACE}/release_vars.env
+                        echo "BUILD_START_TIMESTAMP=${BUILD_START_TIMESTAMP}" >> ${WORKSPACE}/release_vars.env
+                    '''
+
+                    // 检查当前提交是否有 tag
+                    def currentTag = sh(
+                        script: 'git describe --exact-match --tags HEAD 2>/dev/null || echo "no-tag"',
+                        returnStdout: true
+                    ).trim()
+
+                    if (currentTag == 'no-tag') {
+                        echo "⚠️ 当前提交没有 tag，无法进行发布"
+                        echo "请先创建 tag: git tag -a v1.2.3 -m 'Release v1.2.3' && git push origin v1.2.3"
+                        currentBuild.result = 'ABORTED'
+                        error("当前提交没有 tag，无法进行发布")
+                    }
+
+                    echo "✓ 当前提交的 tag: ${currentTag}"
+
+                    // 设置环境变量
+                    env.RELEASE_TAG = currentTag
+
+                    // 提取版本号（移除 'v' 前缀）
+                    env.VERSION = currentTag.replaceFirst(/^v/, '')
+
+                    echo "将处理 tag: ${currentTag}, 版本: ${env.VERSION}"
+
+                    // 确保发布记录目录存在
+                    sh """
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+
+                        mkdir -p ${RELEASE_RECORDS_DIR}
+                        log_message \"发布记录目录: ${RELEASE_RECORDS_DIR}\"
+                    """
+
+                    // 检查这个 tag 是否已经发布过（通过文件系统）
+                    def recordFile = "${RELEASE_RECORDS_DIR}/${currentTag}.release"
+                    def tagAlreadyReleased = sh(
+                        script: "test -f '${recordFile}' && echo 'true' || echo 'false'",
+                        returnStdout: true
+                    ).trim()
+
+                    if (tagAlreadyReleased == 'true') {
+                        // 读取之前的发布信息
+                        def oldReleaseInfo = sh(
+                            script: "cat '${recordFile}' 2>/dev/null || echo '未知'",
+                            returnStdout: true
+                        ).trim()
+
+                        echo "⚠️ 警告: Tag ${currentTag} 已经发布过"
+                        echo "之前的发布信息:"
+                        echo "${oldReleaseInfo}"
+                        echo "----------------------------------------"
+                        echo "将删除旧的发布记录，重新发布..."
+
+                        sh """
+                            source ${WORKSPACE}/jenkins/lib/logger.sh
+                            source ${WORKSPACE}/jenkins/lib/telegram.sh
+
+                            log_message \"⚠️ Tag ${currentTag} 重复发布\"
+                            log_message \"删除旧的发布记录: ${recordFile}\"
+                            rm -f '${recordFile}'
+
+                            # 发送提醒通知
+                            send_telegram_message \"⚠️ 重复发布提醒
+项目名称: ${PROJECT_NAME}
+Tag: ${currentTag}
+版本: ${env.VERSION}
+操作: 删除旧记录，重新发布\"
+                        """
+                    } else {
+                        echo "✓ Tag ${currentTag} 是首次发布"
+                    }
+
+                    // 保存到环境变量文件
+                    sh """
+                        echo "RELEASE_TAG=${env.RELEASE_TAG}" >> ${WORKSPACE}/release_vars.env
+                        echo "VERSION=${env.VERSION}" >> ${WORKSPACE}/release_vars.env
+                    """
+                }
+            }
+        }
+
+        stage('安装依赖') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+
+                        # 添加 Node 到 PATH
+                        export PATH="${NODE_PATH}:$PATH"
+
+                        log_message "Node 版本: $(node -v)"
+                        log_message "pnpm 版本: $(${PNPM_PATH} -v)"
+
+                        log_message "清理旧的 node_modules"
+                        rm -rf node_modules
+
+                        log_message "开始安装依赖（使用 pnpm install）"
+                        INSTALL_START=$(date +%s)
+
+                        # 使用 pnpm install（frozen-lockfile 确保与 pnpm-lock.yaml 一致）
+                        if [ -f pnpm-lock.yaml ]; then
+                            log_message "使用 pnpm install --frozen-lockfile 进行安装"
+                            ${PNPM_PATH} install --frozen-lockfile 2>&1 | tee -a "$BUILD_LOG_FILE" || ${PNPM_PATH} install 2>&1 | tee -a "$BUILD_LOG_FILE"
+                        else
+                            log_message "pnpm-lock.yaml 不存在，使用 pnpm install"
+                            ${PNPM_PATH} install 2>&1 | tee -a "$BUILD_LOG_FILE"
+                        fi
+
+                        INSTALL_END=$(date +%s)
+                        INSTALL_DURATION=$((INSTALL_END - INSTALL_START))
+                        log_message "依赖安装完成，耗时: ${INSTALL_DURATION}秒"
+
+                        update_progress 60 "依赖安装完成"
+                    '''
+                }
+            }
+        }
+
+        stage('构建生产版本') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/release_vars.env
+
+                        # 添加 Node 到 PATH
+                        export PATH="${NODE_PATH}:$PATH"
+
+                        log_message "开始构建生产版本"
+                        ${PNPM_PATH} run build 2>&1 | tee -a "$BUILD_LOG_FILE"
+
+                        log_message "构建完成"
+                        update_progress 80 "构建完成"
+                    '''
+                }
+            }
+        }
+
+        stage('打包发布产物') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/release_vars.env
+
+                        log_message "开始打包发布产物"
+
+                        # 确定构建目录
+                        if [ -d "dist-dev" ]; then
+                            BUILD_DIR="dist-dev"
+                        elif [ -d "dist" ]; then
+                            BUILD_DIR="dist"
+                        elif [ -d "dist-prod" ]; then
+                            BUILD_DIR="dist-prod"
+                        elif [ -d "build" ]; then
+                            BUILD_DIR="build"
+                        else
+                            log_message "错误: 未找到构建产物目录（检查过: dist-dev, dist, dist-prod, build）"
+                            exit 1
+                        fi
+
+                        log_message "使用构建目录: ${BUILD_DIR}"
+
+                        # 创建发布包文件名
+                        RELEASE_PACKAGE="${PROJECT_NAME}-${VERSION}.zip"
+                        log_message "创建发布包: ${RELEASE_PACKAGE}"
+
+                        # 打包
+                        cd ${BUILD_DIR}
+                        zip -r ../${RELEASE_PACKAGE} . 2>&1 | tee -a "$BUILD_LOG_FILE"
+                        cd ..
+
+                        # 验证打包结果
+                        if [ -f "${RELEASE_PACKAGE}" ]; then
+                            FILE_SIZE=$(du -h ${RELEASE_PACKAGE} | cut -f1)
+                            log_message "✓ 发布包创建成功: ${RELEASE_PACKAGE} (${FILE_SIZE})"
+                            echo "RELEASE_PACKAGE=${RELEASE_PACKAGE}" >> ${WORKSPACE}/release_vars.env
+                            echo "PACKAGE_SIZE=${FILE_SIZE}" >> ${WORKSPACE}/release_vars.env
+                        else
+                            log_message "✗ 发布包创建失败"
+                            exit 1
+                        fi
+
+                        update_progress 90 "打包完成"
+                    '''
+                }
+            }
+        }
+
+        stage('归档产物') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    // 归档构建产物
+                    archiveArtifacts artifacts: '*.zip', allowEmptyArchive: false
+
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+
+                        ZIP_FILES=$(ls *.zip 2>/dev/null || true)
+                        if [ -n "${ZIP_FILES}" ]; then
+                            log_message "已归档的发布包:"
+                            for file in ${ZIP_FILES}; do
+                                log_message "  - ${file}"
+                            done
+                        fi
+                    '''
+                }
+            }
+        }
+        
+
+        stage('发送发布开始通知') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/release_vars.env
+
+                        log_message "获取当前提交信息（Jenkins 已检出到正确位置）"
+
+                        # 获取当前 HEAD 的提交信息（兼容 Git 1.8）
+                        TAG_COMMIT_DATE=$(git log -1 --format='%ci' | sed 's/ [+-][0-9]\\{4\\}$//')
+                        TAG_COMMIT_MESSAGE=$(git log -1 --pretty=format:"%s")
+                        TAG_COMMIT_HASH=$(git log -1 --pretty=format:"%H" | cut -c1-8)
+
+                        echo "TAG_COMMIT_DATE='${TAG_COMMIT_DATE}'" >> ${WORKSPACE}/release_vars.env
+                        echo "TAG_COMMIT_MESSAGE='${TAG_COMMIT_MESSAGE}'" >> ${WORKSPACE}/release_vars.env
+                        echo "TAG_COMMIT_HASH='${TAG_COMMIT_HASH}'" >> ${WORKSPACE}/release_vars.env
+
+                        log_message "Tag 信息:"
+                        log_message "  提交日期: ${TAG_COMMIT_DATE}"
+                        log_message "  提交信息: ${TAG_COMMIT_MESSAGE}"
+                        log_message "  提交哈希: ${TAG_COMMIT_HASH}"
+
+                        # 发送发布开始通知
+                        send_telegram_message "🚀 开始发布
+时间: ${BUILD_START_TIME}
+项目名称: ${PROJECT_NAME}
+Tag: ${RELEASE_TAG}
+版本: ${VERSION}
+提交信息: ${TAG_COMMIT_MESSAGE}
+提交日期: ${TAG_COMMIT_DATE}"
+
+                        update_progress 10 "代码检出完成"
+                    '''
+                }
+            }
+        }
+
+        stage('更新消息禅道状态') {
+            when {
+                expression { env.RELEASE_TAG != null }
+            }
+            steps {
+                script {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/zentao_release.sh
+                        source ${WORKSPACE}/release_vars.env
+
+                        log_message "提取从上一个 tag 到当前的所有提交信息"
+
+                        # 获取上一个 tag
+                        PREV_TAG=$(git describe --tags --abbrev=0 ${RELEASE_TAG}^ 2>/dev/null || echo "")
+
+                        if [ -z "${PREV_TAG}" ]; then
+                            log_message "没有找到上一个 tag，提取所有提交"
+                            ALL_COMMITS=$(git log ${RELEASE_TAG} --oneline --pretty=format:"%h|%s" | head -50 || true)
+                        else
+                            log_message "上一个 tag: ${PREV_TAG}"
+                            log_message "提取从 ${PREV_TAG} 到 ${RELEASE_TAG} 的提交"
+                            ALL_COMMITS=$(git log ${PREV_TAG}..${RELEASE_TAG} --oneline --pretty=format:"%h|%s" || true)
+                        fi
+
+                        if [ -z "${ALL_COMMITS}" ]; then
+                            log_message "没有找到任何提交"
+                            echo "BUG_COUNT=0" >> ${WORKSPACE}/release_vars.env
+                            echo "BUG_FIXES_INFO=''" >> ${WORKSPACE}/release_vars.env
+                            echo "CODE_CHANGES_INFO=''" >> ${WORKSPACE}/release_vars.env
+                            echo "PREV_TAG='${PREV_TAG}'" >> ${WORKSPACE}/release_vars.env
+                        else
+                            # 初始化
+                            BUG_FIXES_INFO_FILE="/tmp/bug_fixes_$$.txt"
+                            CODE_CHANGES_INFO_FILE="/tmp/code_changes_$$.txt"
+                            > "$BUG_FIXES_INFO_FILE"
+                            > "$CODE_CHANGES_INFO_FILE"
+
+                            declare -A PROCESSED_BUGS
+
+                            log_message "开始分析提交并提取 Bug 信息..."
+
+                            # 获取禅道 Token（用于查询 Bug 信息）
+                            ZENTAO_TOKEN_RESPONSE=$(curl -s -X POST "${ZENTAO_API_URL}/tokens" \
+                                -H "Content-Type: application/json" \
+                                -d "{\\"account\\":\\"${ZENTAO_USERNAME}\\",\\"password\\":\\"${ZENTAO_PASSWORD}\\"}")
+
+                            ZENTAO_TOKEN=$(echo "$ZENTAO_TOKEN_RESPONSE" | grep -o \'"token":"[^"]*"\' | cut -d\'"\' -f4)
+
+                            if [ -z "$ZENTAO_TOKEN" ]; then
+                                log_message "警告: 无法获取禅道 Token，将只显示 Bug ID 不显示标题"
+                            else
+                                log_message "成功获取禅道 Token"
+                            fi
+
+                            # 遍历所有提交
+                            echo "$ALL_COMMITS" | while IFS=\'|\' read -r commit_hash commit_message; do
+                                # 提取提交类型
+                                if echo "$commit_message" | grep -qE "^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert):"; then
+                                    commit_type=$(echo "$commit_message" | grep -oE "^[a-z]+:" | sed \'s/://\')
+                                    commit_msg=$(echo "$commit_message" | sed -E \'s/^[a-z]+:[[:space:]]*//\')
+
+                                    # 检查是否包含 Bug ID（支持 fix:2506, fix: 2509, fix-2506 等格式）
+                                    if echo "$commit_message" | grep -qE "fix[:-]?[[:space:]]*[0-9]+"; then
+                                        # 提取 Bug ID
+                                        bug_ids=$(echo "$commit_message" | grep -oE "[0-9]+" | head -5)
+
+                                        for bug_id in $bug_ids; do
+                                            # 避免重复处理同一个 Bug
+                                            if [ -z "${PROCESSED_BUGS[$bug_id]}" ]; then
+                                                PROCESSED_BUGS[$bug_id]=1
+
+                                                # 查询禅道获取 Bug 标题
+                                                if [ -n "$ZENTAO_TOKEN" ]; then
+                                                    BUG_INFO=$(curl -s -X GET "${ZENTAO_API_URL}/bugs/${bug_id}" \
+                                                        -H "Token: ${ZENTAO_TOKEN}")
+
+                                                    BUG_TITLE=$(echo "$BUG_INFO" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get(\'title\', \'\'))" 2>/dev/null || echo "")
+
+                                                    if [ -n "$BUG_TITLE" ]; then
+                                                        log_message "找到 Bug #${bug_id}: ${BUG_TITLE}"
+                                                    else
+                                                        BUG_TITLE="Bug详情"
+                                                        log_message "找到 Bug #${bug_id} (无法获取标题)"
+                                                    fi
+                                                else
+                                                    BUG_TITLE="Bug详情"
+                                                fi
+
+                                                # 构建禅道链接
+                                                BUG_URL="${ZENTAO_BUG_BASE_URL}${bug_id}.html"
+
+                                                # 保存到文件（格式: bug_id|bug_title|bug_url）
+                                                echo "${bug_id}|${BUG_TITLE}|${BUG_URL}" >> "$BUG_FIXES_INFO_FILE"
+                                            fi
+                                        done
+                                    else
+                                        # 非 Bug 修复的代码更改
+                                        echo "${commit_type}|${commit_msg}" >> "$CODE_CHANGES_INFO_FILE"
+                                    fi
+                                fi
+                            done
+
+                            # 统计 Bug 数量
+                            BUG_COUNT=$(wc -l < "$BUG_FIXES_INFO_FILE" | tr -d \' \')
+
+                            # 读取文件内容并保存到环境变量
+                            if [ -s "$BUG_FIXES_INFO_FILE" ]; then
+                                BUG_FIXES_CONTENT=$(cat "$BUG_FIXES_INFO_FILE")
+                            else
+                                BUG_FIXES_CONTENT=""
+                            fi
+
+                            if [ -s "$CODE_CHANGES_INFO_FILE" ]; then
+                                CODE_CHANGES_CONTENT=$(cat "$CODE_CHANGES_INFO_FILE")
+                            else
+                                CODE_CHANGES_CONTENT=""
+                            fi
+
+                            # 保存到环境变量文件
+                            echo "BUG_COUNT=${BUG_COUNT}" >> ${WORKSPACE}/release_vars.env
+                            echo "PREV_TAG=\'${PREV_TAG}\'" >> ${WORKSPACE}/release_vars.env
+
+                            # 保存 Bug 列表到文件（避免换行问题）
+                            cat "$BUG_FIXES_INFO_FILE" > ${WORKSPACE}/bug_fixes.txt
+                            cat "$CODE_CHANGES_INFO_FILE" > ${WORKSPACE}/code_changes.txt
+
+                            # 清理临时文件
+                            rm -f "$BUG_FIXES_INFO_FILE" "$CODE_CHANGES_INFO_FILE"
+
+                            log_message "提取完成: ${BUG_COUNT} 个 Bug"
+                        fi
+                    '''
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            script {
+                if (env.RELEASE_TAG) {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/lark.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/release_vars.env
+
+                        # 计算发布耗时
+                        BUILD_END_TIME=$(get_network_time)
+                        BUILD_END_TIMESTAMP=$(get_timestamp "$BUILD_END_TIME")
+                        eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${BUILD_END_TIMESTAMP})
+
+                        log_message "=============== 发布完成 ==============="
+                        log_message "总耗时: ${MINUTES}分${SECONDS}秒"
+
+                        # 100% - 完成
+                        update_progress 100 "发布完成"
+
+                        # 记录发布信息到文件
+                        RECORD_FILE="${RELEASE_RECORDS_DIR}/${RELEASE_TAG}.release"
+                        log_message "创建发布记录: ${RECORD_FILE}"
+
+                        cat > "${RECORD_FILE}" << EOF_RECORD
+发布时间: ${BUILD_END_TIME}
+项目名称: ${PROJECT_NAME}
+Tag: ${RELEASE_TAG}
+版本: ${VERSION}
+构建编号: ${BUILD_NUMBER}
+发布包: ${RELEASE_PACKAGE}
+文件大小: ${PACKAGE_SIZE}
+提交信息: ${TAG_COMMIT_MESSAGE}
+提交日期: ${TAG_COMMIT_DATE}
+提交哈希: ${TAG_COMMIT_HASH}
+耗时: ${MINUTES}分${SECONDS}秒
+EOF_RECORD
+
+                        log_message "✓ 发布记录已保存"
+
+                        # 读取 Bug 修复和代码更改信息
+                        BUG_FIXES_LIST=""
+                        CODE_CHANGES_LIST=""
+
+                        if [ -f "${WORKSPACE}/bug_fixes.txt" ]; then
+                            BUG_FIXES_LIST=$(cat "${WORKSPACE}/bug_fixes.txt")
+                        fi
+
+                        if [ -f "${WORKSPACE}/code_changes.txt" ]; then
+                            CODE_CHANGES_LIST=$(cat "${WORKSPACE}/code_changes.txt")
+                        fi
+
+                        # 发送 Telegram 通知（保留原格式）
+                        TELEGRAM_BUG_SECTION=""
+                        if [ ${BUG_COUNT} -gt 0 ]; then
+                            TELEGRAM_BUG_SECTION="
+
+📋 Bug修复: ${BUG_COUNT} 个"
+
+                            echo "$BUG_FIXES_LIST" | while IFS='|' read -r bug_id bug_title bug_url; do
+                                if [ -n "$bug_id" ]; then
+                                    TELEGRAM_BUG_SECTION="${TELEGRAM_BUG_SECTION}
+• #${bug_id} ${bug_title}"
+                                fi
+                            done
+                        fi
+
+                        send_telegram_message "✅ 发布成功
+时间: ${BUILD_END_TIME}
+项目名称: ${PROJECT_NAME}
+Tag: ${RELEASE_TAG}
+版本: ${VERSION}
+发布包: ${RELEASE_PACKAGE}
+文件大小: ${PACKAGE_SIZE}
+提交信息: ${TAG_COMMIT_MESSAGE}
+提交日期: ${TAG_COMMIT_DATE}
+commit hash: ${TAG_COMMIT_HASH}
+耗时: ${MINUTES}分${SECONDS}秒${TELEGRAM_BUG_SECTION}"
+
+                        send_telegram_file "$BUILD_LOG_FILE" "✅ 发布成功 - 完整日志"
+
+                        # 发送 Lark 通知（使用新函数，带Bug链接）
+                        DOWNLOAD_URL="http://jenkins-pw-admin.pwtk.cc:6061/view/pwtk/job/pwtk-super-admin-web-release/${BUILD_NUMBER}/artifact/${RELEASE_PACKAGE}"
+
+                        # 在新通知函数前发送基本信息通知
+                        LARK_BASIC_CONTENT="**时间:** ${BUILD_END_TIME}
+**项目名称:** ${PROJECT_NAME}
+**Tag:** ${RELEASE_TAG}
+**版本:** ${VERSION}
+**发布包:** ${RELEASE_PACKAGE}
+**文件大小:** ${PACKAGE_SIZE}
+**下载地址:** ${DOWNLOAD_URL}
+**提交信息:** ${TAG_COMMIT_MESSAGE}
+**提交日期:** ${TAG_COMMIT_DATE}
+**commit hash:** ${TAG_COMMIT_HASH}
+**耗时:** ${MINUTES}分${SECONDS}秒"
+
+                        send_lark_message "✅ 发布成功" "${LARK_BASIC_CONTENT}"
+
+                        # 发送带 Bug 链接的版本发布通知
+                        send_release_notification_with_bugs "${PREV_TAG:-首次发布}" "${RELEASE_TAG}" "${BUG_COUNT}" "$BUG_FIXES_LIST" "$CODE_CHANGES_LIST"
+
+                        log_message "日志文件保存在: $BUILD_LOG_FILE"
+                    '''
+                }
+            }
+        }
+
+        failure {
+            script {
+                if (env.RELEASE_TAG) {
+                    sh '''
+                        source ${WORKSPACE}/jenkins/lib/logger.sh
+                        source ${WORKSPACE}/jenkins/lib/telegram.sh
+                        source ${WORKSPACE}/jenkins/lib/lark.sh
+                        source ${WORKSPACE}/jenkins/lib/time-utils.sh
+                        source ${WORKSPACE}/release_vars.env
+
+                        # 计算失败时长
+                        FAIL_TIME=$(get_network_time)
+                        FAIL_TIMESTAMP=$(get_timestamp "$FAIL_TIME")
+                        eval $(calculate_duration ${BUILD_START_TIMESTAMP} ${FAIL_TIMESTAMP})
+
+                        log_message "发布失败，请查看日志"
+
+                        # 发送 Telegram 失败通知
+                        send_telegram_message "❌ 发布失败
+时间: ${FAIL_TIME}
+项目名称: ${PROJECT_NAME}
+Tag: ${RELEASE_TAG}
+版本: ${VERSION}
+提交信息: ${TAG_COMMIT_MESSAGE:-未知}
+提交日期: ${TAG_COMMIT_DATE:-未知}
+错误: 请查看 Jenkins 日志
+耗时: ${MINUTES}分${SECONDS}秒"
+
+                        send_telegram_file "$BUILD_LOG_FILE" "❌ 发布失败 - 完整日志"
+
+                        # 发送 Lark 失败通知
+                        LARK_FAIL_CONTENT="**时间:** ${FAIL_TIME}
+**项目名称:** ${PROJECT_NAME}
+**Tag:** ${RELEASE_TAG}
+**版本:** ${VERSION}
+**提交信息:** ${TAG_COMMIT_MESSAGE:-未知}
+**提交日期:** ${TAG_COMMIT_DATE:-未知}
+**错误:** 请查看 Jenkins 日志
+**耗时:** ${MINUTES}分${SECONDS}秒"
+
+                        send_lark_message "❌ 发布失败" "${LARK_FAIL_CONTENT}"
+                    '''
+                }
+            }
+        }
+
+        always {
+            script {
+                // 归档构建日志
+                archiveArtifacts artifacts: 'release_*.log', allowEmptyArchive: true
+
+                // 清理临时文件
+                sh '''
+                    rm -f *.backup 2>/dev/null || true
+                    echo "清理完成"
+                '''
+            }
+        }
+    }
+}
